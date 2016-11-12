@@ -425,106 +425,6 @@ class TestValidationErrorDetails(unittest.TestCase):
         self.assertEqual(e5.validator, "minItems")
         self.assertEqual(e6.validator, "enum")
 
-    def test_recursive(self):
-        schema = {
-            "definitions": {
-                "node": {
-                    "anyOf": [{
-                        "type": "object",
-                        "required": ["name", "children"],
-                        "properties": {
-                            "name": {
-                                "type": "string",
-                            },
-                            "children": {
-                                "type": "object",
-                                "patternProperties": {
-                                    "^.*$": {
-                                        "$ref": "#/definitions/node",
-                                    },
-                                },
-                            },
-                        },
-                    }],
-                },
-            },
-            "type": "object",
-            "required": ["root"],
-            "properties": {
-                "root": {"$ref": "#/definitions/node"},
-            }
-        }
-
-        instance = {
-            "root": {
-                "name": "root",
-                "children": {
-                    "a": {
-                        "name": "a",
-                        "children": {
-                            "ab": {
-                                "name": "ab",
-                                # missing "children"
-                            }
-                        }
-                    },
-                },
-            },
-        }
-        validator = Draft4Validator(schema)
-
-        e, = validator.iter_errors(instance)
-        self.assertEqual(e.absolute_path, deque(["root"]))
-        self.assertEqual(
-            e.absolute_schema_path, deque(["properties", "root", "anyOf"]),
-        )
-
-        e1, = e.context
-        self.assertEqual(e1.absolute_path, deque(["root", "children", "a"]))
-        self.assertEqual(
-            e1.absolute_schema_path, deque(
-                [
-                    "properties",
-                    "root",
-                    "anyOf",
-                    0,
-                    "properties",
-                    "children",
-                    "patternProperties",
-                    "^.*$",
-                    "anyOf",
-                ],
-            ),
-        )
-
-        e2, = e1.context
-        self.assertEqual(
-            e2.absolute_path, deque(
-                ["root", "children", "a", "children", "ab"],
-            ),
-        )
-        self.assertEqual(
-            e2.absolute_schema_path, deque(
-                [
-                    "properties",
-                    "root",
-                    "anyOf",
-                    0,
-                    "properties",
-                    "children",
-                    "patternProperties",
-                    "^.*$",
-                    "anyOf",
-                    0,
-                    "properties",
-                    "children",
-                    "patternProperties",
-                    "^.*$",
-                    "anyOf"
-                ],
-            ),
-        )
-
     def test_additionalProperties(self):
         instance = {"bar": "bar", "foo": 2}
         schema = {
@@ -633,31 +533,16 @@ class ValidatorTestMixin(object):
         resolver = RefResolver("", {})
         schema = {"$ref" : mock.Mock()}
 
-        with mock.patch.object(resolver, "resolve") as resolve:
-            resolve.return_value = "url", {"type": "integer"}
+        @contextmanager
+        def resolving():
+            yield {"type": "integer"}
+
+        with mock.patch.object(resolver, "resolving") as resolve:
+            resolve.return_value = resolving()
             with self.assertRaises(ValidationError):
                 self.validator_class(schema, resolver=resolver).validate(None)
 
         resolve.assert_called_once_with(schema["$ref"])
-
-    def test_it_delegates_to_a_legacy_ref_resolver(self):
-        """
-        Legacy RefResolvers support only the context manager form of
-        resolution.
-
-        """
-
-        class LegacyRefResolver(object):
-            @contextmanager
-            def resolving(this, ref):
-                self.assertEqual(ref, "the ref")
-                yield {"type" : "integer"}
-
-        resolver = LegacyRefResolver()
-        schema = {"$ref" : "the ref"}
-
-        with self.assertRaises(ValidationError):
-            self.validator_class(schema, resolver=resolver).validate(None)
 
     def test_is_type_is_true_for_valid_type(self):
         self.assertTrue(self.validator.is_type("foo", "string"))
@@ -790,11 +675,11 @@ class TestRefResolver(unittest.TestCase):
             self.assertEqual(resolved, self.referrer["properties"]["foo"])
 
     def test_it_resolves_local_refs_with_id(self):
-        schema = {"id": "http://bar/schema#", "a": {"foo": "bar"}}
+        schema = {"id": "foo://bar/schema#", "a": {"foo": "bar"}}
         resolver = RefResolver.from_schema(schema)
         with resolver.resolving("#/a") as resolved:
             self.assertEqual(resolved, schema["a"])
-        with resolver.resolving("http://bar/schema#/a") as resolved:
+        with resolver.resolving("foo://bar/schema#/a") as resolved:
             self.assertEqual(resolved, schema["a"])
 
     def test_it_retrieves_stored_refs(self):
@@ -831,7 +716,6 @@ class TestRefResolver(unittest.TestCase):
         schema = {"id" : "foo"}
         resolver = RefResolver.from_schema(schema)
         self.assertEqual(resolver.base_uri, "foo")
-        self.assertEqual(resolver.resolution_scope, "foo")
         with resolver.resolving("") as resolved:
             self.assertEqual(resolved, schema)
         with resolver.resolving("#") as resolved:
@@ -845,7 +729,6 @@ class TestRefResolver(unittest.TestCase):
         schema = {}
         resolver = RefResolver.from_schema(schema)
         self.assertEqual(resolver.base_uri, "")
-        self.assertEqual(resolver.resolution_scope, "")
         with resolver.resolving("") as resolved:
             self.assertEqual(resolved, schema)
         with resolver.resolving("#") as resolved:
@@ -880,7 +763,9 @@ class TestRefResolver(unittest.TestCase):
         )
         with resolver.resolving(ref):
             pass
-        self.assertEqual(foo_handler.call_count, 1)
+        with resolver.resolving(ref):
+            pass
+        self.assertEqual(foo_handler.call_count, 2)
 
     def test_if_you_give_it_junk_you_get_a_resolution_error(self):
         ref = "foo://bar"
@@ -890,13 +775,6 @@ class TestRefResolver(unittest.TestCase):
             with resolver.resolving(ref):
                 pass
         self.assertEqual(str(err.exception), "Oh no! What's this?")
-
-    def test_helpful_error_message_on_failed_pop_scope(self):
-        resolver = RefResolver("", {})
-        resolver.pop_scope()
-        with self.assertRaises(RefResolutionError) as exc:
-            resolver.pop_scope()
-        self.assertIn("Failed to pop the scope", str(exc.exception))
 
 
 def sorted_errors(errors):

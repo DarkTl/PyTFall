@@ -12,7 +12,7 @@ except ImportError:
 from jsonschema import _utils, _validators
 from jsonschema.compat import (
     Sequence, urljoin, urlsplit, urldefrag, unquote, urlopen,
-    str_types, int_types, iteritems, lru_cache,
+    str_types, int_types, iteritems,
 )
 from jsonschema.exceptions import ErrorTree  # Backwards compatibility  # noqa
 from jsonschema.exceptions import RefResolutionError, SchemaError, UnknownType
@@ -79,10 +79,7 @@ def create(meta_schema, validators=(), version=None, default_types=None):  # noq
             if _schema is None:
                 _schema = self.schema
 
-            scope = _schema.get(u"id")
-            if scope:
-                self.resolver.push_scope(scope)
-            try:
+            with self.resolver.in_scope(_schema.get(u"id", u"")):
                 ref = _schema.get(u"$ref")
                 if ref is not None:
                     validators = [(u"$ref", ref)]
@@ -106,9 +103,6 @@ def create(meta_schema, validators=(), version=None, default_types=None):  # noq
                         if k != u"$ref":
                             error.schema_path.appendleft(k)
                         yield error
-            finally:
-                if scope:
-                    self.resolver.pop_scope()
 
         def descend(self, instance, schema, path=None, schema_path=None):
             for error in self.iter_errors(instance, schema):
@@ -233,33 +227,19 @@ class RefResolver(object):
         first resolution
     :argument dict handlers: a mapping from URI schemes to functions that
         should be used to retrieve them
-    :arguments functools.lru_cache urljoin_cache: a cache that will be used for
-        caching the results of joining the resolution scope to subscopes.
-    :arguments functools.lru_cache remote_cache: a cache that will be used for
-        caching the results of resolved remote URLs.
 
     """
 
     def __init__(
-        self,
-        base_uri,
-        referrer,
-        store=(),
-        cache_remote=True,
-        handlers=(),
-        urljoin_cache=None,
-        remote_cache=None,
+        self, base_uri, referrer, store=(), cache_remote=True, handlers=(),
     ):
-        if urljoin_cache is None:
-            urljoin_cache = lru_cache(1024)(urljoin)
-        if remote_cache is None:
-            remote_cache = lru_cache(1024)(self.resolve_from_url)
-
+        self.base_uri = base_uri
+        self.resolution_scope = base_uri
+        # This attribute is not used, it is for backwards compatibility
         self.referrer = referrer
         self.cache_remote = cache_remote
         self.handlers = dict(handlers)
 
-        self._scopes_stack = [base_uri]
         self.store = _utils.URIDict(
             (id, validator.META_SCHEMA)
             for id, validator in iteritems(meta_schemas)
@@ -267,52 +247,26 @@ class RefResolver(object):
         self.store.update(store)
         self.store[base_uri] = referrer
 
-        self._urljoin_cache = urljoin_cache
-        self._remote_cache = remote_cache
-
     @classmethod
     def from_schema(cls, schema, *args, **kwargs):
         """
         Construct a resolver from a JSON schema object.
 
-        :argument schema: the referring schema
+        :argument schema schema: the referring schema
         :rtype: :class:`RefResolver`
 
         """
 
         return cls(schema.get(u"id", u""), schema, *args, **kwargs)
 
-    def push_scope(self, scope):
-        self._scopes_stack.append(
-            self._urljoin_cache(self.resolution_scope, scope),
-        )
-
-    def pop_scope(self):
-        try:
-            self._scopes_stack.pop()
-        except IndexError:
-            raise RefResolutionError(
-                "Failed to pop the scope from an empty stack. "
-                "`pop_scope()` should only be called once for every "
-                "`push_scope()`",
-            )
-
-    @property
-    def resolution_scope(self):
-        return self._scopes_stack[-1]
-
-    @property
-    def base_uri(self):
-        uri, _ = urldefrag(self.resolution_scope)
-        return uri
-
     @contextlib.contextmanager
     def in_scope(self, scope):
-        self.push_scope(scope)
+        old_scope = self.resolution_scope
+        self.resolution_scope = urljoin(old_scope, scope)
         try:
             yield
         finally:
-            self.pop_scope()
+            self.resolution_scope = old_scope
 
     @contextlib.contextmanager
     def resolving(self, ref):
@@ -324,28 +278,25 @@ class RefResolver(object):
 
         """
 
-        url, resolved = self.resolve(ref)
-        self.push_scope(url)
-        try:
-            yield resolved
-        finally:
-            self.pop_scope()
+        full_uri = urljoin(self.resolution_scope, ref)
+        uri, fragment = urldefrag(full_uri)
+        if not uri:
+            uri = self.base_uri
 
-    def resolve(self, ref):
-        url = self._urljoin_cache(self.resolution_scope, ref)
-        return url, self._remote_cache(url)
-
-    def resolve_from_url(self, url):
-        url, fragment = urldefrag(url)
-        try:
-            document = self.store[url]
-        except KeyError:
+        if uri in self.store:
+            document = self.store[uri]
+        else:
             try:
-                document = self.resolve_remote(url)
+                document = self.resolve_remote(uri)
             except Exception as exc:
                 raise RefResolutionError(exc)
 
-        return self.resolve_fragment(document, fragment)
+        old_base_uri, self.base_uri = self.base_uri, uri
+        try:
+            with self.in_scope(uri):
+                yield self.resolve_fragment(document, fragment)
+        finally:
+            self.base_uri = old_base_uri
 
     def resolve_fragment(self, document, fragment):
         """
@@ -381,9 +332,8 @@ class RefResolver(object):
         """
         Resolve a remote ``uri``.
 
-        If called directly, does not check the store first, but after
-        retrieving the document at the specified URI it will be saved in
-        the store if :attr:`cache_remote` is True.
+        Does not check the store first, but stores the retrieved document in
+        the store if :attr:`RefResolver.cache_remote` is True.
 
         .. note::
 
