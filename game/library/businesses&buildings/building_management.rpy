@@ -85,6 +85,7 @@ init python:
             self.status_filters = set()
             self.action_filters = set()
             self.occ_filters = set()
+            self.class_filters = set()
             self.location_filters = set()
             
             self.sorting_order = None
@@ -94,6 +95,7 @@ init python:
             self.status_filters = set()
             self.action_filters = set()
             self.occ_filters = set()
+            self.class_filters = set()
             self.location_filters = set()
             
         def update(self, container):
@@ -111,6 +113,8 @@ init python:
                 filtered = [c for c in filtered if c.action in self.action_filters]
             if self.occ_filters:
                 filtered = [c for c in filtered if c.occupations.intersection(self.occ_filters)]
+            if self.class_filters:
+                filtered = [c for c in filtered if c.traits.basetraits.intersection(self.class_filters)]
             if self.location_filters:
                 filtered = [c for c in filtered if c.location in self.location_filters]
                     

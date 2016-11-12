@@ -2,6 +2,7 @@ init:
     default status_filters = list()
     default location_filters = list()
     default action_filters = list()
+    #default class_filters = list()
     default occ_filters = list()
     python:
         def sorting_for_chars_list():
@@ -30,6 +31,7 @@ label chars_list:
             location_filters = list(set([c.location for c in hero.chars]))
             action_filters = list(set([c.action for c in hero.chars]))
             selected_filters = set(['Status', 'Site', 'Action']) #, 'Class'
+            #class_filters = list(set([c.action for c in hero.traits.basetraits]))
             char_list_selection = { c.name: None for c in char_lists_filters.sorted }
         
         show screen chars_list(source=char_lists_filters, page=chars_list_last_page_viewed, total_pages=1)
@@ -210,6 +212,11 @@ screen chars_list(source=None, page=0, total_pages=1):
                         style_group "basic"
                         action ToggleSetMembership(selected_filters, 'Action')
                         text "Action" hover_color blue
+                    #button:
+                    #    xalign 0.5
+                    #    style_group "basic"
+                    #    action ToggleSetMembership(selected_filters, 'Class')
+                    #    text "Class" hover_color purple
 
                 null height 20
                 hbox:
@@ -230,6 +237,10 @@ screen chars_list(source=None, page=0, total_pages=1):
                             button:
                                 action ModFilterSet(source, "action_filters", f)
                                 text "[f]" hover_color blue
+                    #for f in class_filters:
+                    #    button:
+                    #        action ModFilterSet(source, "class_filters", f)
+                    #        text "[f]" hover_color purple
                 null height 50
                 button:
                         xalign 0.5
@@ -279,10 +290,23 @@ screen chars_list(source=None, page=0, total_pages=1):
                 xysize (250, 200)
                 has vbox style_group "basic" align .5, .5 spacing 5
                 vbox:
+                    spacing 5
+                    #button:
+                    #    xysize (150, 40)
+                    #    action If(any(char_list_selection.values()), [Show("girl_control")])
+                    #    text "Girl Control"
+                    #button:
+                    #    xysize (150, 40)
+                    #    action If(any(char_list_selection.values()), [Hide("chars_list"), With(dissolve), SetVariable("eqtarget", char_list_selection), Jump('char_equip')])
+                    #    text "Equipment"
                     button:
                         xysize (150, 40)
                         action If(any(char_list_selection.values()), [Hide("chars_list"), With(dissolve), Jump('girl_training')])
                         text "Training"
+                    #button:
+                    #    xysize (150, 40)
+                    #    action If(any(char_list_selection.values()), [Return(["girl", "get_rid"])])
+                    #    text "Get Rid"
             
     use top_stripe(True)
     
