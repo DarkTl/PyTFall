@@ -21,28 +21,3 @@ Modules currently include:
 
 In the last few month a lot of work has been on interface and adding content to some of the modules
 as well as recoding part of the game. Other modules are planned or actively developed.
-
-
-Current active dev team consits of:
-- Alex (Xela) (Code)
-- DarkTl (Content)
-- Gismo (Interface)
-- CherryWood (Support)
-
-====
-We are always looking for:
-
-- Writers
-- Designers
-- Coders
-
-to help us with the project.
-
-====
-TechDemo of some basic features: https://youtu.be/gwMiX1GFHtI
-Our forums are open to view and require registration to chat or to post.
-
-
-See ya in PyTFall,
-
-Xela and da Crew :)
