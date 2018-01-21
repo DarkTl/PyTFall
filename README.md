@@ -19,5 +19,4 @@ Modules currently include:
 - MC (limited to Male) with background stories/Setup Screen
 - Schools
 
-In the last few month a lot of work has been on interface and adding content to some of the modules
-as well as recoding part of the game. Other modules are planned or actively developed.
+
